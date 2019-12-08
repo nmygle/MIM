@@ -22,16 +22,20 @@ class ConvLSTM(nn.Module):
                         kernel_size=kernel_size, stride=1, padding=pad, bias=bias)
         self.last = nn.Conv2d(2 * h_ch, h_ch, 1, 1, 0)
 
-    def init_state(self, shape, device):
-        return Variable(torch.zeros((shape[0], self.h_ch, shape[2], shape[3]))).to(device)
+    def set_shape(self, shape, device):
+        self.shape = shape
+        self.device = device
+
+    def init_state(self):
+        return Variable(torch.zeros((self.shape[0], self.h_ch, self.shape[2], self.shape[3]))).to(self.device)
 
     def forward(self, x, h, c, m):
         if h is None:
-            h = self.init_state(x.data.shape, x.device)
+            h = self.init_state()
         if c is None:
-            c = self.init_state(x.data.shape, x.device)
+            c = self.init_state()
         if m is None:
-            m = self.init_state(x.data.shape, x.device)
+            m = self.init_state()
 
         i_s, g_s, f_s, o_s = torch.split(self.s_cc(h), self.h_ch, dim=1)
         i_t, g_t, f_t, o_t = torch.split(self.t_cc(h), self.h_ch, dim=1)
@@ -56,65 +60,6 @@ class ConvLSTM(nn.Module):
         return new_h, new_c, new_m
 
 
-#class MIMN(nn.Module):
-#    def __init__(self, h_ch, h=128, w=128, k_size=3, tln=False):
-#        super(MIMN, self).__init__()
-#        pad = (k_size - 1) // 2
-#        if tln:
-#            self.conv_h = nn.Squential(
-#                                nn.Conv2d(h_ch, h_ch * 4, k_size, 1, pad),
-#                                nn.LayerNorm(h_ch * 4, h, w))
-#            self.conv_x = nn.Squential(
-#                                nn.Conv2d(h_ch, h_ch * 4, k_size, 1, pad),
-#                                nn.LayerNorm(h_ch * 4, h, w))
-#        else:
-#            self.conv_h = nn.Conv2d(h_ch, h_ch * 4, k_size, 1, pad)
-#            self.conv_x = nn.Conv2d(h_ch, h_ch * 4, k_size, 1, pad)
-#
-#        self.h_ch = h_ch
-#        self._forget_bias = 1.0
-#        self.ct_weight = nn.init.normal_(nn.Parameter(
-#                                torch.Tensor(torch.zeros(h_ch*2, h, w))), 0.0, 1.0)
-#        self.oc_weight = nn.init.normal_(nn.Parameter(
-#                                torch.Tensor(torch.zeros(h_ch, h, w))), 0.0, 1.0)
-#
-#    def init_state(self, shape, device):
-#        return Variable(torch.zeros((shape[0], self.h_ch, shape[2], shape[3]))).to(device)
-#
-#    def forward(self, x, h_t, c_t):
-#        if h_t is None:
-#            h_t = self.init_state(x.data.shape, x.device)
-#        if c_t is None:
-#            c_t = self.init_state(x.data.shape, x.device)
-#
-#        i_h, g_h, f_h, o_h = torch.split(self.conv_h(h_t), self.h_ch, dim=1)
-#
-#        ct_activation = torch.matmul(c_t.repeat([1,2,1,1]), self.ct_weight)
-#        i_c, f_c = torch.split(ct_activation, self.h_ch, dim=1)
-#
-#        i_ = i_h + i_c
-#        f_ = f_h + f_c
-#        g_ = g_h
-#        o_ = o_h
-#
-#        if x is not None:
-#            i_x, g_x, f_x, o_x = torch.split(self.conv_x(x), self.h_ch, dim=1)
-#            i_ += i_x
-#            f_ += f_x
-#            g_ += g_x
-#            o_ += o_x
-#
-#        i_ = torch.sigmoid(i_)
-#        f_ = torch.sigmoid(f_ + self._forget_bias)
-#        c_new = f_ * c_t + i_ * torch.tanh(g_)
-#
-#        o_c = torch.matmul(c_new, self.oc_weight)
-#
-#        h_new = torch.sigmoid(o_ + o_c) * torch.tanh(c_new)
-#
-#        return h_new, c_new
-
-
 class MIMS(nn.Module):
     def __init__(self, h_ch, h=128, w=128, k_size=3, tln=False):
         super(MIMS, self).__init__()
@@ -137,14 +82,18 @@ class MIMS(nn.Module):
         self.oc_weight = nn.init.normal_(nn.Parameter(
                                 torch.Tensor(torch.zeros(h_ch, h, w))), 0.0, 1.0)
 
-    def init_state(self, shape, device):
-        return Variable(torch.zeros((shape[0], self.h_ch, shape[2], shape[3]))).to(device)
+    def set_shape(self, shape, device):
+        self.shape = shape
+        self.device = device
+
+    def init_state(self):
+        return Variable(torch.zeros((self.shape[0], self.h_ch, self.shape[2], self.shape[3]))).to(self.device)
 
     def forward(self, x, h_t, c_t):
         if h_t is None:
-            h_t = self.init_state(x.data.shape, x.device)
+            h_t = self.init_state()
         if c_t is None:
-            c_t = self.init_state(x.data.shape, x.device)
+            c_t = self.init_state()
 
         i_h, g_h, f_h, o_h = torch.split(self.conv_h(h_t), self.h_ch, dim=1)
 
@@ -168,7 +117,7 @@ class MIMS(nn.Module):
         c_new = f_ * c_t + i_ * torch.tanh(g_)
 
         o_c = torch.matmul(c_new, self.oc_weight)
-
+        
         h_new = torch.sigmoid(o_ + o_c) * torch.tanh(c_new)
 
         return h_new, c_new
@@ -193,17 +142,21 @@ class MIMBlock(nn.Module):
         self.mims = MIMS(out_ch, h, w)
         self.last = nn.Conv2d(2 * out_ch, out_ch, 1, 1, 0)
 
+    def set_shape(self, shape, device):
+        self.shape = shape
+        self.device = device
+        self.mims.set_shape(shape, device)
 
-    def init_state(self, shape, device):
-        return Variable(torch.zeros((shape[0], self.out_ch, shape[2], shape[3]))).to(device)
+    def init_state(self):
+        return Variable(torch.zeros((self.shape[0], self.out_ch, self.shape[2], self.shape[3]))).to(self.device)
 
     def forward(self, x, diff_h, h, c, m):
         if h is None:
-            h = self.init_state(x.data.shape, x.device)
+            h = self.init_state()
         if c is None:
-            c = self.init_state(x.data.shape, x.device)
+            c = self.init_state()
         if m is None:
-            m = self.init_state(x.data.shape, x.device)
+            m = self.init_state()
         if diff_h is None:
             diff_h = torch.zeros_like(h)
 

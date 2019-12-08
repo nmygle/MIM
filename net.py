@@ -7,16 +7,16 @@ from torch.autograd import Variable
 
 from mim import ConvLSTM, MIMBlock, MIMS
 
+
 class MIM(nn.Module):
-    def __init__(self, h=128, w=128):
+    def __init__(self, h=128, w=128, num_hidden=[32,32]):
         super(MIM, self).__init__()
 
         in_ch = 1
         out_ch = 1
-        num_hidden = [32, 32, 32]
         self.num_layers = len(num_hidden)
-        self.total_length = 24
-        self.input_length = 12
+        self.total_length = 48
+        self.input_length = 24
 
         # stationarity
         self.stlstm_layer = nn.ModuleList([])
@@ -33,7 +33,18 @@ class MIM(nn.Module):
 
         self.top = nn.Conv2d(num_hidden[-1], out_ch, 1, 1, 0)
 
+
+    def set_shape(self, shape, device):
+        for i in range(self.num_layers):
+            self.stlstm_layer[i].set_shape(shape, device)
+
+        for i in range(self.num_layers - 1):
+            self.stlstm_layer_diff[i].set_shape(shape, device)
+
+
     def forward(self, images):
+        self.set_shape(images.shape, images.device)
+
         st_memory = None
         cell_state = [None] * self.num_layers
         hidden_state = [None] * self.num_layers
@@ -51,9 +62,10 @@ class MIM(nn.Module):
                 x_gen = gamma * images[:, [time_step]] + (1-gamma) * x_gen
             preh = hidden_state[0]
 
-            # 1st layer
+            # 1st layer(convlstm)
             hidden_state[0], cell_state[0], st_memory = self.stlstm_layer[0](
                     x_gen, hidden_state[0], cell_state[0], st_memory)
+            # higher layer(mim)
             for i in range(1, self.num_layers):
                 print("  layer:", i)
                 if time_step == 0:
@@ -71,7 +83,10 @@ class MIM(nn.Module):
         return torch.stack(gen_images)
 
 if __name__ == "__main__":
-    mim = MIM(64,64).cuda()
-    images = torch.zeros(1, 24, 64, 64).cuda()
+    w = 128
+    num_hidden = [64, 64]
+    mim = MIM(w, w, num_hidden).cuda()
+    images = torch.zeros(1, 48, w, w).cuda()
     y = mim(images)
     print(y.shape)
+
